@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#07111f"><title>CyberX Pro</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="top"><a class="brand" href="#">CyberX <span>PRO</span></a><span id="health" class="pill">جارٍ الاتصال…</span></header>
+    <section id="auth-view" class="auth-layout">
+      <div class="hero"><div class="eyebrow">منصة الأمن السيبراني</div><h1>الأمان يبدأ<br><em>بالتفويض.</em></h1><p>سجّل الأصول، وثّق نطاق الإذن، وتابع مهام التقييم وسجل التدقيق في مساحة عمل واحدة.</p><div class="safe-note">🔒 لا تُنفّذ هذه النسخة أي اتصال أو فحص للأصول.</div></div>
+      <div class="card auth-card"><div class="tabs"><button id="login-tab" class="active">تسجيل الدخول</button><button id="register-tab">إنشاء حساب</button></div>
+        <form id="auth-form"><label>البريد الإلكتروني<input name="email" type="email" placeholder="you@company.com" required autocomplete="email"></label>
+          <label id="org-field" class="hidden">اسم المؤسسة<input name="organization_name" minlength="2" maxlength="100" placeholder="مؤسستي"></label>
+          <label>كلمة المرور<input name="password" type="password" minlength="12" required autocomplete="current-password" placeholder="12 حرفاً على الأقل"></label>
+          <button class="primary full" type="submit" id="auth-submit">دخول آمن <span>←</span></button><p id="auth-error" class="error"></p></form>
+        <small>نسخة أولية للاستخدام المحلي والتجريبي فقط.</small></div>
+    </section>
+    <section id="app-view" class="hidden">
+      <div class="welcome"><div><div class="eyebrow">مساحة العمل</div><h1>مرحباً، <span id="org-name">—</span></h1><p>إدارة الأصول والتفويضات ومهام التقييم الآمنة.</p></div><button id="logout" class="secondary">تسجيل الخروج</button></div>
+      <div class="stats"><article class="card stat"><span>الأصول</span><strong id="asset-count">0</strong><small>مسجلة في المؤسسة</small></article><article class="card stat"><span>التفويضات السارية</span><strong id="auth-count">0</strong><small>تسمح بتسجيل مهمة</small></article><article class="card stat"><span>المهام المسجلة</span><strong id="scan-count">0</strong><small>بدون اتصال بالأهداف</small></article></div>
+      <div class="grid">
+        <article class="card"><div class="section-title"><div><div class="eyebrow">جرد الأصول</div><h2>إضافة أصل</h2></div><span class="icon">＋</span></div>
+          <form id="asset-form" class="form-grid"><label>اسم الأصل<input name="name" required minlength="2" maxlength="120" placeholder="خدمة الإنتاج"></label><label>نوع الأصل<select name="asset_type"><option value="domain">نطاق</option><option value="ip">عنوان IP</option><option value="application">تطبيق</option><option value="other">أخرى</option></select></label><label class="wide">معرّف الأصل<input name="identifier" required maxlength="253" placeholder="example.com أو وصف الأصل"></label><button class="primary" type="submit">إضافة الأصل</button></form></article>
+        <article class="card"><div class="section-title"><div><div class="eyebrow">إثبات النطاق</div><h2>تسجيل التفويض</h2></div><span class="icon">✓</span></div>
+          <form id="authorization-form" class="form-grid"><label class="wide">الأصل<select name="asset_id" id="auth-asset" required><option value="">أضف أصلاً أولاً</option></select></label><label class="wide">نطاق الإذن<textarea name="scope_note" required minlength="10" maxlength="1000" placeholder="صف النطاق المصرح به والقيود…"></textarea></label><label>بداية التفويض<input name="starts_at" type="datetime-local" required></label><label>انتهاء التفويض<input name="expires_at" type="datetime-local" required></label><label class="check wide"><input name="attested" type="checkbox" required> أؤكد أن لدي تفويضاً موثقاً لهذا الأصل.</label><button class="primary" type="submit">حفظ التفويض</button></form></article>
+        <article class="card"><div class="section-title"><div><div class="eyebrow">تشغيل آمن</div><h2>تسجيل مهمة تقييم</h2></div><span class="icon">↗</span></div><p class="muted">يتطلب تفويضاً سارياً. يسجل النظام المهمة محلياً فقط ولا يتصل بالأصل.</p><form id="scan-form" class="form-grid"><label class="wide">الأصل<select name="asset_id" id="scan-asset" required><option value="">اختر أصلاً</option></select></label><button class="primary" type="submit">تسجيل المهمة</button></form></article>
+        <article class="card"><div class="section-title"><div><div class="eyebrow">الأصول</div><h2>أصول المؤسسة</h2></div></div><div id="assets-list" class="list empty">لا توجد أصول بعد.</div></article>
+      </div>
+      <div class="grid bottom-grid"><article class="card"><div class="section-title"><div><div class="eyebrow">سجل التنفيذ</div><h2>المهام الأخيرة</h2></div></div><div id="scans-list" class="list empty">لا توجد مهام بعد.</div></article><article class="card"><div class="section-title"><div><div class="eyebrow">قابلية التدقيق</div><h2>آخر الأحداث</h2></div></div><div id="audit-list" class="list empty">لا توجد أحداث بعد.</div></article></div>
+      <div id="toast" class="toast" role="status"></div>
+    </section>
+    <footer>CyberX Pro <span>·</span> نسخة MVP آمنة — التقييمات الفعلية غير مفعّلة</footer>
+  </main><script src="/static/app.js" defer></script>
+</body></html>

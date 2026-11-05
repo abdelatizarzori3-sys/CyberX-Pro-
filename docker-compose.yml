@@ -1,0 +1,13 @@
+services:
+  cyberx:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      CYBERX_DB_PATH: /data/cyberx.db
+      CYBERX_SESSION_HOURS: "12"
+    volumes:
+      - cyberx_data:/data
+    restart: unless-stopped
+volumes:
+  cyberx_data:
