@@ -3,9 +3,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+import re
 import secrets
 import sqlite3
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
@@ -14,7 +15,7 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 STATIC_DIR = BASE_DIR / "frontend"
@@ -113,16 +114,48 @@ class RegisterInput(BaseModel):
     password: str = Field(min_length=12, max_length=128)
     organization_name: str = Field(min_length=2, max_length=100)
 
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        value = value.strip().lower()
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value):
+            raise ValueError("بريد إلكتروني غير صالح")
+        return value
+
+    @field_validator("organization_name")
+    @classmethod
+    def non_blank_organization(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("اسم المؤسسة مطلوب")
+        return value
+
 
 class LoginInput(BaseModel):
     email: str = Field(min_length=5, max_length=254)
     password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        value = value.strip().lower()
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value):
+            raise ValueError("بريد إلكتروني غير صالح")
+        return value
 
 
 class AssetInput(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     asset_type: str = Field(pattern="^(domain|ip|application|other)$")
     identifier: str = Field(min_length=1, max_length=253)
+
+    @field_validator("name", "identifier")
+    @classmethod
+    def strip_non_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("القيمة مطلوبة")
+        return value
 
 
 class AuthorizationInput(BaseModel):
@@ -132,18 +165,48 @@ class AuthorizationInput(BaseModel):
     expires_at: datetime
     attested: bool
 
+    @field_validator("scope_note")
+    @classmethod
+    def strip_scope(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 10:
+            raise ValueError("وصف نطاق التفويض قصير جدًا")
+        return value
+
 
 class ScanInput(BaseModel):
     asset_id: str
 
 
-app = FastAPI(title="CyberX Pro", version="1.0.0", description="MVP آمن لإدارة الأصول والتفويض ومهام التقييم المحلية.")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(
+    title="CyberX Pro",
+    version="1.0.0",
+    description="MVP آمن لإدارة الأصول والتفويض ومهام التقييم المحلية.",
+    lifespan=lifespan,
+)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
-@app.on_event("startup")
-def startup() -> None:
-    init_db()
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; "
+        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    )
+    return response
 
 
 @app.get("/", include_in_schema=False)
@@ -283,6 +346,8 @@ def list_scans(user: dict = Depends(current_user)):
 @app.post("/api/v1/scans", status_code=201)
 def create_scan(data: ScanInput, user: dict = Depends(current_user)):
     current = now()
+    blocked = False
+    response = None
     with db() as conn:
         asset = conn.execute("SELECT id FROM assets WHERE id=? AND organization_id=?", (data.asset_id, user["organization_id"])).fetchone()
         if not asset:
@@ -292,14 +357,18 @@ def create_scan(data: ScanInput, user: dict = Depends(current_user)):
             (data.asset_id, user["organization_id"], current.isoformat(), current.isoformat())).fetchone()
         if not auth:
             audit(conn, user["organization_id"], user["id"], "scan.blocked", data.asset_id)
-            raise HTTPException(403, "لا يمكن إنشاء المهمة: لا يوجد تفويض سارٍ لهذا الأصل")
-        scan_id = str(uuid4())
-        # Deliberately metadata-only: no network requests or target-side operations are performed.
-        conn.execute("INSERT INTO scans VALUES (?, ?, ?, ?, ?, ?, ?)",
-                     (scan_id, user["organization_id"], data.asset_id, auth["id"], "COMPLETED", user["id"], iso()))
-        audit(conn, user["organization_id"], user["id"], "scan.recorded", scan_id)
-        return {"id": scan_id, "asset_id": data.asset_id, "authorization_id": auth["id"], "status": "COMPLETED",
-                "message": "تم تسجيل المهمة محلياً. لم يتم إرسال أي اتصال إلى الأصل."}
+            blocked = True
+        else:
+            scan_id = str(uuid4())
+            # Metadata-only: this records a request; it does not execute a scan.
+            conn.execute("INSERT INTO scans VALUES (?, ?, ?, ?, ?, ?, ?)",
+                         (scan_id, user["organization_id"], data.asset_id, auth["id"], "RECORDED", user["id"], iso()))
+            audit(conn, user["organization_id"], user["id"], "scan.recorded", scan_id)
+            response = {"id": scan_id, "asset_id": data.asset_id, "authorization_id": auth["id"], "status": "RECORDED",
+                        "message": "تم تسجيل الطلب محلياً فقط؛ لم يتم تنفيذ فحص أو إرسال اتصال إلى الأصل."}
+    if blocked:
+        raise HTTPException(403, "لا يمكن تسجيل الطلب: لا يوجد تفويض سارٍ لهذا الأصل")
+    return response
 
 
 @app.get("/api/v1/audit-logs")
@@ -311,3 +380,13 @@ def list_audit(user: dict = Depends(current_user)):
 @app.get("/api/v1/health")
 def health():
     return {"status": "ok", "service": "cyberx-pro-mvp"}
+
+
+@app.get("/api/v1/ready")
+def ready():
+    try:
+        with db() as conn:
+            conn.execute("SELECT 1").fetchone()
+    except sqlite3.Error as exc:
+        raise HTTPException(status_code=503, detail="قاعدة البيانات غير جاهزة") from exc
+    return {"status": "ready", "database": "ok"}
